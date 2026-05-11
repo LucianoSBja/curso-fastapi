@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Query
 from sqlmodel import select
 
-from models import Customer, CustomerCreate, CustomerUpdate, Plan, CustomerPlan
+from models import Customer, CustomerCreate, CustomerUpdate, Plan, CustomerPlan, StatusEnum
 from db import SessionDep
 
 router = APIRouter()
@@ -49,7 +49,7 @@ async def update_customer(customer_id: int, customer_data: CustomerUpdate, sessi
     return customer
 
 @router.post("/customers/{customer_id}/subscribe/{plan_id}", response_model=Customer, tags=["Customers"])
-async def subscribe_customer_to_plan(customer_id: int, plan_id: int, session: SessionDep):
+async def subscribe_customer_to_plan(customer_id: int, plan_id: int, session: SessionDep,  plan_status:StatusEnum = Query() ):
     customer = session.get(Customer, customer_id)
     if not customer:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
@@ -58,7 +58,12 @@ async def subscribe_customer_to_plan(customer_id: int, plan_id: int, session: Se
     if not plan:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found")
 
-    customer_plan = CustomerPlan(customer_id=customer_id, plan_id=plan_id)
+    customer_plan = CustomerPlan(
+        customer_id=customer_id,
+        plan_id=plan_id,
+        status=plan_status
+        )
+
     session.add(customer_plan)
     session.commit()
     session.refresh(customer_plan)
@@ -68,12 +73,15 @@ async def subscribe_customer_to_plan(customer_id: int, plan_id: int, session: Se
 @router.get("/customers/{customer_id}/subscribe", response_model=Customer, tags=["Customers"])
 async def subscribe_customer_plan(customer_id: int, session: SessionDep):
     customer_db = session.get(Customer, customer_id)
+
     if not customer_db:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
-    return customer_db.plans
 
+    query = (
+        select(CustomerPlan)
+        .where(CustomerPlan.customer_id == customer_id)
+        .where(CustomerPlan.status == StatusEnum.ACTIVE)
+        )
 
-@router.get('/customer/customer/plans', response_model=list[CustomerPlan], status_code=status.HTTP_200_OK)
-async def list_customer_plans(session:SessionDep):
-    plan_db = session.exec(select(CustomerPlan)).all()
-    return plan_db
+    customer_plans = session.exec(query).all()
+    return customer_plans
